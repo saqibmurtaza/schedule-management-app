@@ -1,0 +1,7 @@
+FROM n8nio/n8n:latest
+
+# Copy your workflows into the container
+COPY workflows/ /workflows/
+
+# Import all workflows on container start, then start n8n
+CMD n8n import:workflow --separate --input=/workflows/ && n8n start

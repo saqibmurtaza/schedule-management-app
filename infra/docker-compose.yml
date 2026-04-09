@@ -1,0 +1,35 @@
+services:
+  n8n:
+    build:
+      context: ..                  # Points to the monorepo root (schedule-management-app)
+      dockerfile: infra/n8n-Dockerfile
+    restart: unless-stopped
+    
+    environment:
+      # Database configuration - connect directly to Neon
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}          # e.g., ep-xxx-xxx.us-east-2.aws.neon.tech
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
+      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+      - DB_POSTGRESDB_SSL_ENABLED=true                  # Important for Neon
+
+      # n8n settings
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=admin
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}        # Add a strong random key
+
+    env_file:
+    - .env
+
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:

@@ -1,0 +1,107 @@
+{
+  "name": "School Schedule - Daily Notifications",
+  "nodes": [
+    {
+      "name": "Schedule Trigger (Daily 6 AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "hour": 6,
+          "minute": 0,
+          "weekday": "monday,tuesday,wednesday,thursday,friday,saturday,sunday"
+        }
+      }
+    },
+    {
+      "name": "Get Today's Classes",
+      "type": "n8n-nodes-base.postgres",
+      "position": [450, 300],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT s.*, p.phone_number, p.email, p.parent_name, p.student_name FROM schedules s LEFT JOIN parent_subscriptions p ON s.class_name = p.class_name AND s.school_name = p.school_name WHERE s.day_of_week = TO_CHAR(NOW(), 'Day') AND s.is_active = true ORDER BY s.start_time;"
+      }
+    },
+    {
+      "name": "Group by Parent",
+      "type": "n8n-nodes-base.code",
+      "position": [650, 300],
+      "parameters": {
+        "jsCode": "// Group classes by parent contact info\nconst items = $input.all();\nconst parentMap = new Map();\n\nfor (const item of items) {\n  const parentKey = `${item.json.parent_name}|${item.json.email}|${item.json.phone_number}`;\n  \n  if (!parentMap.has(parentKey)) {\n    parentMap.set(parentKey, {\n      parentName: item.json.parent_name,\n      email: item.json.email,\n      phoneNumber: item.json.phone_number,\n      studentName: item.json.student_name,\n      classes: []\n    });\n  }\n  \n  parentMap.get(parentKey).classes.push({\n    subject: item.json.subject,\n    startTime: item.json.start_time,\n    endTime: item.json.end_time,\n    meetingLink: item.json.meeting_link,\n    teacherEmail: item.json.teacher_email,\n    notes: item.json.notes\n  });\n}\n\n// Convert map to array and sort classes by time\nconst result = Array.from(parentMap.values()).map(parent => {\n  parent.classes.sort((a, b) => a.startTime.localeCompare(b.startTime));\n  return parent;\n});\n\nreturn result.map(r => ({ json: r }));"
+      }
+    },
+    {
+      "name": "Split by Notification Channel",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [850, 300],
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      }
+    },
+    {
+      "name": "Format Email Message",
+      "type": "n8n-nodes-base.code",
+      "position": [1050, 250],
+      "parameters": {
+        "jsCode": "const parent = $input.first().json;\n\nconst today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\n\nlet emailHtml = `\n<h2>📚 Schedule for ${parent.studentName}</h2>\n<p><strong>Date:</strong> ${today}</p>\n<h3>Today's Classes:</h3>\n<table border=\"1\" cellpadding=\"8\" style=\"border-collapse: collapse;\">\n  <tr style=\"background-color: #f2f2f2;\">\n    <th>Time</th>\n    <th>Subject</th>\n    <th>Meeting Link</th>\n    <th>Notes</th>\n  </tr>\n`;\n\nfor (const cls of parent.classes) {\n  emailHtml += `\n  <tr>\n    <td>${cls.startTime} - ${cls.endTime}</td>\n    <td>${cls.subject}</td>\n    <td><a href=\"${cls.meetingLink}\">Join Class</a></td>\n    <td>${cls.notes || '-'}</td>\n  </tr>\n  `;\n}\n\nemailHtml += `\n</table>\n<p style=\"margin-top: 20px;\">\n  <small>Having trouble? Contact your school administrator.</small>\n</p>\n`;\n\nreturn [{ json: { email: parent.email, html: emailHtml, parentName: parent.parentName, studentName: parent.studentName } }];"
+      }
+    },
+    {
+      "name": "Send Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [1250, 250],
+      "parameters": {
+        "fromEmail": "daily@scheduler.yourschoolapp.com",
+        "toEmail": "={{$json[\"email\"]}}",
+        "subject": "📅 Your Child's Schedule for Today",
+        "htmlBody": "={{$json[\"html\"]}}"
+      }
+    },
+    {
+      "name": "Format Telegram Message",
+      "type": "n8n-nodes-base.code",
+      "position": [1050, 400],
+      "parameters": {
+        "jsCode": "const parent = $input.first().json;\n\nlet message = `📚 *Schedule for ${parent.studentName}*\\n\\n`;\n\nfor (const cls of parent.classes) {\n  message += `⏰ ${cls.startTime} - ${cls.endTime}\\n`;\n  message += `📖 *${cls.subject}*\\n`;\n  if (cls.meetingLink) {\n    message += `🔗 [Join Class](${cls.meetingLink})\\n`;\n  }\n  if (cls.notes) {\n    message += `📝 ${cls.notes}\\n`;\n  }\n  message += `\\n`;\n}\n\nmessage += `_Having trouble? Contact your school._`;\n\nreturn [{ json: { chatId: parent.phoneNumber, message: message } }];"
+      }
+    },
+    {
+      "name": "Send Telegram Notification",
+      "type": "n8n-nodes-base.telegram",
+      "position": [1250, 400],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json[\"chatId\"]}}",
+        "text": "={{$json[\"message\"]}}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Daily 6 AM)": {
+      "main": [[{"node": "Get Today's Classes", "type": "main", "index": 0}]]
+    },
+    "Get Today's Classes": {
+      "main": [[{"node": "Group by Parent", "type": "main", "index": 0}]]
+    },
+    "Group by Parent": {
+      "main": [[{"node": "Split by Notification Channel", "type": "main", "index": 0}]]
+    },
+    "Split by Notification Channel": {
+      "main": [
+        [{"node": "Format Email Message", "type": "main", "index": 0}],
+        [{"node": "Format Telegram Message", "type": "main", "index": 0}]
+      ]
+    },
+    "Format Email Message": {
+      "main": [[{"node": "Send Email Notification", "type": "main", "index": 0}]]
+    },
+    "Format Telegram Message": {
+      "main": [[{"node": "Send Telegram Notification", "type": "main", "index": 0}]]
+    }
+  }
+}

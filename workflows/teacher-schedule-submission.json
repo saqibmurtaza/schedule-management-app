@@ -1,0 +1,100 @@
+{
+  "name": "School Schedule - Teacher Submission",
+  "nodes": [
+    {
+      "name": "Webhook - Schedule Submission",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "parameters": {
+        "path": "schedule-submit",
+        "method": "POST",
+        "responseMode": "onReceived",
+        "responseData": "{{$json}}"
+      }
+    },
+    {
+      "name": "Validate Input Data",
+      "type": "n8n-nodes-base.code",
+      "position": [450, 300],
+      "parameters": {
+        "jsCode": "// Validate required fields\nconst required = ['schoolName', 'className', 'subject', 'dayOfWeek', 'startTime', 'endTime', 'teacherEmail'];\n\nfor (const field of required) {\n  if (!$input.first().json[field]) {\n    throw new Error(`Missing required field: ${field}`);\n  }\n}\n\n// Validate day of week\nconst validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];\nif (!validDays.includes($input.first().json.dayOfWeek)) {\n  throw new Error('Invalid day of week');\n}\n\n// Validate time format (HH:MM)\nconst timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;\nif (!timeRegex.test($input.first().json.startTime) || !timeRegex.test($input.first().json.endTime)) {\n  throw new Error('Invalid time format. Use HH:MM');\n}\n\n// Add timestamp\nconst data = $input.first().json;\ndata.createdAt = new Date().toISOString();\ndata.updatedAt = data.createdAt;\n\nreturn [{ json: data }];"
+      }
+    },
+    {
+      "name": "Check for Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "position": [650, 300],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM schedules WHERE school_name = '{{$json[\"schoolName\"]}}' AND class_name = '{{$json[\"className\"]}}' AND subject = '{{$json[\"subject\"]}}' AND day_of_week = '{{$json[\"dayOfWeek\"]}}' AND start_time = '{{$json[\"startTime\"]}}' LIMIT 1;"
+      }
+    },
+    {
+      "name": "IF - Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "position": [850, 300],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[0].id}}",
+              "operation": "exists",
+              "value2": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Insert into Database",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1050, 250],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO schedules (school_name, class_name, subject, teacher_email, day_of_week, start_time, end_time, meeting_link, notes, created_at, updated_at) VALUES ('{{$json[\"schoolName\"]}}', '{{$json[\"className\"]}}', '{{$json[\"subject\"]}}', '{{$json[\"teacherEmail\"]}}', '{{$json[\"dayOfWeek\"]}}', '{{$json[\"startTime\"]}}', '{{$json[\"endTime\"]}}', '{{$json[\"meetingLink\"] || ''}}', '{{$json[\"notes\"] || ''}}', '{{$json[\"createdAt\"]}}', '{{$json[\"updatedAt\"]}}') RETURNING id;"
+      }
+    },
+    {
+      "name": "Send Confirmation Email",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [1250, 250],
+      "parameters": {
+        "fromEmail": "scheduler@yourschoolapp.com",
+        "toEmail": "={{$node[\"Validate Input Data\"].json[\"teacherEmail\"]}}",
+        "subject": "Schedule Saved Successfully",
+        "text": "Your class schedule has been saved.\n\nClass: {{$node[\"Validate Input Data\"].json[\"className\"]}} - {{$node[\"Validate Input Data\"].json[\"subject\"]}}\nDay: {{$node[\"Validate Input Data\"].json[\"dayOfWeek\"]}}\nTime: {{$node[\"Validate Input Data\"].json[\"startTime\"]}} to {{$node[\"Validate Input Data\"].json[\"endTime\"]}}\n\nView all schedules: https://yourdashboard.com/schedule"
+      }
+    },
+    {
+      "name": "Send Duplicate Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [1050, 400],
+      "parameters": {
+        "fromEmail": "scheduler@yourschoolapp.com",
+        "toEmail": "={{$node[\"Validate Input Data\"].json[\"teacherEmail\"]}}",
+        "subject": "Duplicate Schedule Detected",
+        "text": "A schedule already exists for:\nClass: {{$node[\"Validate Input Data\"].json[\"className\"]}} - {{$node[\"Validate Input Data\"].json[\"subject\"]}}\nDay: {{$node[\"Validate Input Data\"].json[\"dayOfWeek\"]}}\nTime: {{$node[\"Validate Input Data\"].json[\"startTime\"]}}\n\nPlease edit the existing entry instead of creating a duplicate."
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Schedule Submission": {
+      "main": [[{"node": "Validate Input Data", "type": "main", "index": 0}]]
+    },
+    "Validate Input Data": {
+      "main": [[{"node": "Check for Duplicate", "type": "main", "index": 0}]]
+    },
+    "Check for Duplicate": {
+      "main": [[{"node": "IF - Duplicate?", "type": "main", "index": 0}]]
+    },
+    "IF - Duplicate?": {
+      "main": [
+        [{"node": "Send Duplicate Alert", "type": "main", "index": 0}],
+        [{"node": "Insert into Database", "type": "main", "index": 0}]
+      ]
+    },
+    "Insert into Database": {
+      "main": [[{"node": "Send Confirmation Email", "type": "main", "index": 0}]]
+    }
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "name": "School Schedule - Parent Subscribe",
+  "nodes": [
+    {
+      "name": "Webhook - Subscribe",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "parameters": {
+        "path": "parent-subscribe",
+        "method": "POST",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "name": "Validate Parent Input",
+      "type": "n8n-nodes-base.code",
+      "position": [450, 300],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst required = ['parentName', 'studentName', 'schoolName', 'className', 'email'];\n\nfor (const field of required) {\n  if (!data[field]) {\n    throw new Error(`Missing field: ${field}`);\n  }\n}\n\n// Validate class exists\n// This will be checked in the next step\n\nreturn [{ json: data }];"
+      }
+    },
+    {
+      "name": "Check if Class Exists",
+      "type": "n8n-nodes-base.postgres",
+      "position": [650, 300],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM schedules WHERE school_name = '{{$json[\"schoolName\"]}}' AND class_name = '{{$json[\"className\"]}}' LIMIT 1;"
+      }
+    },
+    {
+      "name": "IF - Class Exists?",
+      "type": "n8n-nodes-base.if",
+      "position": [850, 300],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[0].id}}",
+              "operation": "exists",
+              "value2": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Insert Parent Subscription",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1050, 250],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO parent_subscriptions (parent_name, student_name, school_name, class_name, email, phone_number, subscribed_at) VALUES ('{{$json[\"parentName\"]}}', '{{$json[\"studentName\"]}}', '{{$json[\"schoolName\"]}}', '{{$json[\"className\"]}}', '{{$json[\"email\"]}}', '{{$json[\"phoneNumber\"] || NULL}}', NOW()) ON CONFLICT (email, class_name) DO UPDATE SET subscribed_at = NOW();"
+      }
+    },
+    {
+      "name": "Send Welcome Email",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [1250, 250],
+      "parameters": {
+        "fromEmail": "welcome@scheduler.yourschoolapp.com",
+        "toEmail": "={{$json[\"email\"]}}",
+        "subject": "Welcome to Schedule Updates",
+        "text": "Hi {{$json[\"parentName\"]}},\n\nYou've successfully subscribed to schedule updates for {{$json[\"className\"]}} at {{$json[\"schoolName\"]}}.\n\nYour child: {{$json[\"studentName\"]}}\n\nYou will receive daily schedules at 6 AM.\n\nTo unsubscribe, reply STOP or visit: https://yourdashboard.com/unsubscribe?email={{$json[\"email\"]}}\n\nBest regards,\nSchool Schedule Team"
+      }
+    },
+    {
+      "name": "Return Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [1050, 400],
+      "parameters": {
+        "responseCode": 404,
+        "responseBody": "{\"error\":\"Class not found. Please check school name and class name.\"}"
+      }
+    },
+    {
+      "name": "Return Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [1450, 250],
+      "parameters": {
+        "responseCode": 200,
+        "responseBody": "{\"message\":\"Subscription successful! Check your email.\"}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Subscribe": {
+      "main": [[{"node": "Validate Parent Input", "type": "main", "index": 0}]]
+    },
+    "Validate Parent Input": {
+      "main": [[{"node": "Check if Class Exists", "type": "main", "index": 0}]]
+    },
+    "Check if Class Exists": {
+      "main": [[{"node": "IF - Class Exists?", "type": "main", "index": 0}]]
+    },
+    "IF - Class Exists?": {
+      "main": [
+        [{"node": "Insert Parent Subscription", "type": "main", "index": 0}],
+        [{"node": "Return Error Response", "type": "main", "index": 0}]
+      ]
+    },
+    "Insert Parent Subscription": {
+      "main": [[{"node": "Send Welcome Email", "type": "main", "index": 0}]]
+    },
+    "Send Welcome Email": {
+      "main": [[{"node": "Return Success Response", "type": "main", "index": 0}]]
+    }
+  }
+}
