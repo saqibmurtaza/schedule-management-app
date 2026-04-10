@@ -1,7 +1,13 @@
 FROM n8nio/n8n:latest
 
-# Copy your workflows into the container
+# Copy workflows for automatic import on startup
 COPY workflows/ /workflows/
 
-# Use shell form to properly execute the chain of commands
-CMD /bin/sh -c "n8n import:workflow --separate --input=/workflows/ && n8n start"
+# Create a startup script to handle import safely
+RUN echo '#!/bin/sh\n\
+n8n import:workflow --separate --input=/workflows/ || true\n\
+exec n8n start\n' > /startup.sh && \
+    chmod +x /startup.sh
+
+# Use the startup script
+CMD ["/startup.sh"]
