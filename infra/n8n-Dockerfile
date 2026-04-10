@@ -1,13 +1,15 @@
 FROM n8nio/n8n:latest
 
-# Copy workflows for automatic import on startup
+# Copy workflows for automatic import
 COPY workflows/ /workflows/
 
-# Create a startup script to handle import safely
-RUN echo '#!/bin/sh\n\
-n8n import:workflow --separate --input=/workflows/ || true\n\
-exec n8n start\n' > /startup.sh && \
-    chmod +x /startup.sh
+# Create startup script in a writable location (/home/node) and make it executable
+RUN echo '#!/bin/sh' > /home/node/startup.sh && \
+    echo 'n8n import:workflow --separate --input=/workflows/ || true' >> /home/node/startup.sh && \
+    echo 'exec n8n start' >> /home/node/startup.sh && \
+    chmod +x /home/node/startup.sh && \
+    chown node:node /home/node/startup.sh
 
-# Use the startup script
-CMD ["/startup.sh"]
+# Run as the node user and execute the startup script
+USER node
+CMD ["/home/node/startup.sh"]
