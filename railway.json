@@ -1,0 +1,12 @@
+{
+  "build": {
+    "builder": "RAILPACK"
+  },
+  "services": {
+    "dashboard": {
+      "rootDirectory": "dashboard",
+      "buildCommand": "pnpm install --frozen-lockfile && pnpm build",
+      "startCommand": "pnpm start"
+    }
+  }
+}
