@@ -1,15 +1,21 @@
 FROM n8nio/n8n:latest
 
-# Copy workflows for automatic import
+# Copy workflows into the container
 COPY workflows/ /workflows/
 
-# Create startup script in a writable location (/home/node) and make it executable
-RUN echo '#!/bin/sh' > /home/node/startup.sh && \
+# Create startup script in the node's home directory (writable location)
+# and set correct ownership
+RUN mkdir -p /home/node && \
+    echo '#!/bin/sh' > /home/node/startup.sh && \
+    echo 'echo "Importing workflows..."' >> /home/node/startup.sh && \
     echo 'n8n import:workflow --separate --input=/workflows/ || true' >> /home/node/startup.sh && \
+    echo 'echo "Starting n8n..."' >> /home/node/startup.sh && \
     echo 'exec n8n start' >> /home/node/startup.sh && \
     chmod +x /home/node/startup.sh && \
-    chown node:node /home/node/startup.sh
+    chown -R node:node /home/node
 
-# Run as the node user and execute the startup script
+# Switch to the node user (as used by the official image)
 USER node
+
+# Run the startup script
 CMD ["/home/node/startup.sh"]
