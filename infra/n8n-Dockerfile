@@ -1,9 +1,5 @@
 FROM n8nio/n8n:latest
 
-# Copy workflows for import
 COPY workflows/ /workflows/
 
-# Run as node user and import workflows before starting
 USER node
-
-CMD sh -c "n8n import:workflow --separate --input=/workflows/ || true && n8n start"
